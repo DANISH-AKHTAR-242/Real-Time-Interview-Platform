@@ -27,7 +27,10 @@ const extractBearerToken = (authorization: string | undefined): string | null =>
   return token
 }
 
-export const authPreHandler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+export const authPreHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> => {
   const token = extractBearerToken(request.headers.authorization)
 
   if (!token) {

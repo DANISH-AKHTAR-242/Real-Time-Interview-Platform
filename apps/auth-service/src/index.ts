@@ -51,6 +51,21 @@ const assertAuthBody = (body: unknown): AuthBody => {
   }
 }
 
+const buildAuthResponse = (user: StoredUser, token: string) => ({
+  token,
+  user: {
+    id: user.id,
+    email: user.email,
+    createdAt: user.createdAt,
+  },
+})
+
+const addLoginFailureJitter = async (): Promise<void> => {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 75)
+  })
+}
+
 const server = Fastify({
   logger: true,
 })
@@ -103,14 +118,7 @@ server.post('/register', async (request, reply) => {
     tokenBundle.ttlSeconds,
   )
 
-  return reply.code(201).send({
-    token: tokenBundle.token,
-    user: {
-      id: user.id,
-      email: user.email,
-      createdAt: user.createdAt,
-    },
-  })
+  return reply.code(201).send(buildAuthResponse(user, tokenBundle.token))
 })
 
 server.post('/login', async (request, reply) => {
@@ -126,12 +134,14 @@ server.post('/login', async (request, reply) => {
   const user = await findUserByEmail(body.email)
 
   if (!user) {
+    await addLoginFailureJitter()
     return reply.code(401).send({ message: 'Invalid credentials' })
   }
 
   const passwordMatches = await bcrypt.compare(body.password, user.passwordHash)
 
   if (!passwordMatches) {
+    await addLoginFailureJitter()
     return reply.code(401).send({ message: 'Invalid credentials' })
   }
 
@@ -151,14 +161,7 @@ server.post('/login', async (request, reply) => {
     tokenBundle.ttlSeconds,
   )
 
-  return reply.code(200).send({
-    token: tokenBundle.token,
-    user: {
-      id: user.id,
-      email: user.email,
-      createdAt: user.createdAt,
-    },
-  })
+  return reply.code(200).send(buildAuthResponse(user, tokenBundle.token))
 })
 
 server.get('/me', { preHandler: authPreHandler }, async (request, reply) => {
