@@ -9,6 +9,13 @@
       "dependsOn": ["^lint"],
       "outputs": []
     },
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": []
+    },
+    "format": {
+      "outputs": []
+    },
     "dev": {
       "cache": false,
       "persistent": true

@@ -6,7 +6,8 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "format": "prettier --check .",
+    "typecheck": "turbo run typecheck",
+    "format": "turbo run format",
     "format:write": "prettier --write ."
   },
   "devDependencies": {
