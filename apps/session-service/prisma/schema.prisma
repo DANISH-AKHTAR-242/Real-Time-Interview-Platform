@@ -1,0 +1,26 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  scheduled
+  active
+  completed
+}
+
+model Session {
+  id            String        @id @default(uuid()) @db.Uuid
+  candidateId   String        @map("candidate_id") @db.Uuid
+  interviewerId String        @map("interviewer_id") @db.Uuid
+  status        SessionStatus @default(scheduled)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([candidateId], map: "sessions_candidate_id_idx")
+  @@index([status], map: "sessions_status_idx")
+  @@map("sessions")
+}

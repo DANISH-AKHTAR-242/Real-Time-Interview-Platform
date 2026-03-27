@@ -8,10 +8,13 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "lint": "eslint .",
-    "format": "prettier --check \"src/**/*.ts\" \"*.json\" \"eslint.config.js\"",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "format": "prettier --check \"src/**/*.ts\" \"prisma/**/*.prisma\" \"*.json\" \"eslint.config.js\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@prisma/client": "^6.5.0",
     "fastify": "^5.2.1"
   },
   "devDependencies": {
@@ -20,6 +23,7 @@
     "@types/node": "^22.13.10",
     "eslint": "^9.22.0",
     "prettier": "^3.5.3",
+    "prisma": "^6.5.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }
