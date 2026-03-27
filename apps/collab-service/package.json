@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@y/websocket-server": "^0.1.1",
+    "jsonwebtoken": "^9.0.2",
     "ws": "^8.18.3",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.26"
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/tsconfig": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.13.10",
     "@types/ws": "^8.5.14",
     "eslint": "^9.22.0",
