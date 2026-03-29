@@ -18,7 +18,11 @@ const isUuid = (value: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
 const isSessionStatus = (value: unknown): value is SessionStatus => {
-  return value === SessionStatus.scheduled || value === SessionStatus.active || value === SessionStatus.completed
+  return (
+    value === SessionStatus.scheduled ||
+    value === SessionStatus.active ||
+    value === SessionStatus.completed
+  )
 }
 
 const parseCreateBody = (body: unknown): CreateSessionBody => {
@@ -34,6 +38,10 @@ const parseCreateBody = (body: unknown): CreateSessionBody => {
 
   if (typeof interviewerId !== 'string' || !isUuid(interviewerId)) {
     throw new Error('interviewerId must be a valid UUID')
+  }
+
+  if (candidateId === interviewerId) {
+    throw new Error('candidateId and interviewerId must be different')
   }
 
   if (status !== undefined && !isSessionStatus(status)) {
@@ -61,12 +69,53 @@ const parseUpdateBody = (body: unknown): UpdateSessionBody => {
   return { status }
 }
 
-const server = Fastify({ logger: true })
+const server = Fastify({
+  logger: {
+    level: sessionConfig.logLevel,
+  },
+  trustProxy: sessionConfig.trustProxy,
+  bodyLimit: sessionConfig.bodyLimitBytes,
+  requestTimeout: sessionConfig.requestTimeoutMs,
+})
+
+server.addHook('onSend', async (_request, reply, payload) => {
+  reply.header('x-content-type-options', 'nosniff')
+  reply.header('x-frame-options', 'DENY')
+  reply.header('referrer-policy', 'no-referrer')
+  return payload
+})
+
+server.setErrorHandler((error, request, reply) => {
+  request.log.error(error)
+
+  if (!reply.sent) {
+    reply.code(500).send({ message: 'Internal server error' })
+  }
+})
 
 server.get('/health', async () => {
   return {
     service: 'session-service',
     status: 'ok',
+  }
+})
+
+server.get('/ready', async (request, reply) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`
+
+    return reply.code(200).send({
+      service: 'session-service',
+      status: 'ready',
+    })
+  } catch (error) {
+    request.log.error(error)
+
+    return reply.code(503).send({
+      service: 'session-service',
+      status: 'degraded',
+      dependency: 'postgres',
+    })
   }
 })
 
@@ -80,15 +129,20 @@ server.post('/sessions', async (request, reply) => {
     return reply.code(400).send({ message })
   }
 
-  const session = await prisma.session.create({
-    data: {
-      candidateId: body.candidateId,
-      interviewerId: body.interviewerId,
-      status: body.status ?? SessionStatus.scheduled,
-    },
-  })
+  try {
+    const session = await prisma.session.create({
+      data: {
+        candidateId: body.candidateId,
+        interviewerId: body.interviewerId,
+        status: body.status ?? SessionStatus.scheduled,
+      },
+    })
 
-  return reply.code(201).send({ session })
+    return reply.code(201).send({ session })
+  } catch (error) {
+    request.log.error(error)
+    return reply.code(503).send({ message: 'Session storage unavailable' })
+  }
 })
 
 server.get('/sessions/:id', async (request, reply) => {
@@ -99,9 +153,16 @@ server.get('/sessions/:id', async (request, reply) => {
     return reply.code(400).send({ message: 'id must be a valid UUID' })
   }
 
-  const session = await prisma.session.findUnique({
-    where: { id },
-  })
+  let session
+
+  try {
+    session = await prisma.session.findUnique({
+      where: { id },
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.code(503).send({ message: 'Session storage unavailable' })
+  }
 
   if (!session) {
     return reply.code(404).send({ message: 'Session not found' })
@@ -158,5 +219,39 @@ const start = async (): Promise<void> => {
     process.exit(1)
   }
 }
+
+let isShuttingDown = false
+
+const shutdown = async (signal: string): Promise<void> => {
+  if (isShuttingDown) {
+    return
+  }
+
+  isShuttingDown = true
+  server.log.info({ signal }, 'shutting down session-service')
+
+  const forcedExitTimer = setTimeout(() => {
+    process.exit(1)
+  }, sessionConfig.shutdownGracePeriodMs)
+
+  forcedExitTimer.unref()
+
+  try {
+    await server.close()
+    clearTimeout(forcedExitTimer)
+    process.exit(0)
+  } catch (error) {
+    server.log.error(error)
+    process.exit(1)
+  }
+}
+
+process.once('SIGINT', () => {
+  void shutdown('SIGINT')
+})
+
+process.once('SIGTERM', () => {
+  void shutdown('SIGTERM')
+})
 
 void start()

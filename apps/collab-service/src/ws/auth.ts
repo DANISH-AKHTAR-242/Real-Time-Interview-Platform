@@ -1,27 +1,8 @@
 import jwt, { type JwtPayload } from 'jsonwebtoken'
 
+import { collabConfig } from './config.js'
+
 import type { IncomingMessage } from 'node:http'
-
-const getRequiredEnv = (name: string): string => {
-  const value = process.env[name]
-
-  if (!value || value.trim().length === 0) {
-    throw new Error(`Missing required environment variable: ${name}`)
-  }
-
-  return value
-}
-
-const normalizePem = (value: string): string => {
-  if (value.includes('-----BEGIN')) {
-    return value
-  }
-
-  return value.replace(/\\n/g, '\n')
-}
-
-const JWT_PUBLIC_KEY = normalizePem(getRequiredEnv('JWT_PUBLIC_KEY'))
-const SESSION_SERVICE_URL = process.env.SESSION_SERVICE_URL?.trim()
 
 interface JwtClaims {
   sub: string
@@ -36,6 +17,19 @@ export interface AuthenticatedUpgrade {
   userId: string
   sessionId: string
 }
+
+export class UpgradeAuthError extends Error {
+  statusCode: number
+
+  constructor(statusCode: number, message: string) {
+    super(message)
+    this.name = 'UpgradeAuthError'
+    this.statusCode = statusCode
+  }
+}
+
+const isUuid = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
 const toAuthQueryParams = (requestUrl: string | undefined): AuthQueryParams | null => {
   if (!requestUrl) {
@@ -67,7 +61,7 @@ const parseClaims = (payload: string | JwtPayload): JwtClaims => {
 }
 
 const verifyAccessToken = (token: string): JwtClaims => {
-  const payload = jwt.verify(token, JWT_PUBLIC_KEY, {
+  const payload = jwt.verify(token, collabConfig.jwtPublicKey, {
     algorithms: ['RS256'],
   })
 
@@ -79,19 +73,43 @@ const hasMockSessionAccess = (userId: string, sessionId: string): boolean => {
 }
 
 const hasSessionServiceAccess = async (userId: string, sessionId: string): Promise<boolean> => {
-  if (!SESSION_SERVICE_URL) {
+  if (!collabConfig.sessionServiceUrl) {
+    if (!collabConfig.allowMockSessionAccess) {
+      throw new UpgradeAuthError(503, 'Session authorization provider is not configured')
+    }
+
     return hasMockSessionAccess(userId, sessionId)
   }
 
-  const endpoint = `${SESSION_SERVICE_URL.replace(/\/$/, '')}/sessions/${encodeURIComponent(sessionId)}`
-  const response = await fetch(endpoint)
+  const endpoint = `${collabConfig.sessionServiceUrl}/sessions/${encodeURIComponent(sessionId)}`
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, collabConfig.sessionServiceTimeoutMs)
+
+  let response: Response
+
+  try {
+    response = await fetch(endpoint, {
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new UpgradeAuthError(503, 'Session-service authorization check timed out')
+    }
+
+    throw new UpgradeAuthError(503, 'Session-service authorization check failed')
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (response.status === 404) {
     return false
   }
 
   if (!response.ok) {
-    throw new Error(`Session-service authorization check failed with status ${response.status}`)
+    throw new UpgradeAuthError(503, `Session-service returned status ${response.status}`)
   }
 
   const body = (await response.json()) as {
@@ -116,14 +134,33 @@ export const authenticateUpgradeRequest = async (
   const query = toAuthQueryParams(request.url)
 
   if (!query) {
-    throw new Error('Missing token or sessionId query parameter')
+    throw new UpgradeAuthError(401, 'Missing token or sessionId query parameter')
   }
 
-  const claims = verifyAccessToken(query.token)
+  if (collabConfig.sessionServiceUrl && !isUuid(query.sessionId)) {
+    throw new UpgradeAuthError(400, 'sessionId must be a valid UUID')
+  }
+
+  if (
+    !collabConfig.sessionServiceUrl &&
+    !isUuid(query.sessionId) &&
+    !collabConfig.allowMockSessionAccess
+  ) {
+    throw new UpgradeAuthError(400, 'sessionId must be a valid UUID')
+  }
+
+  let claims: JwtClaims
+
+  try {
+    claims = verifyAccessToken(query.token)
+  } catch {
+    throw new UpgradeAuthError(401, 'Invalid access token')
+  }
+
   const hasAccess = await hasSessionServiceAccess(claims.sub, query.sessionId)
 
   if (!hasAccess) {
-    throw new Error('Forbidden: user is not authorized for this session')
+    throw new UpgradeAuthError(403, 'Forbidden: user is not authorized for this session')
   }
 
   return {

@@ -1,12 +1,13 @@
-export interface SessionConfig {
+export interface CollabConfig {
   host: string
   port: number
-  databaseUrl: string
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
-  requestTimeoutMs: number
-  bodyLimitBytes: number
-  trustProxy: boolean
+  maxPayloadBytes: number
   shutdownGracePeriodMs: number
+  jwtPublicKey: string
+  sessionServiceUrl?: string
+  allowMockSessionAccess: boolean
+  sessionServiceTimeoutMs: number
 }
 
 const getRequiredEnv = (name: string): string => {
@@ -53,6 +54,14 @@ const getBoolean = (name: string, fallback: boolean): boolean => {
   throw new Error(`${name} must be one of: true, false, 1, 0`)
 }
 
+const normalizePem = (value: string): string => {
+  if (value.includes('-----BEGIN')) {
+    return value
+  }
+
+  return value.replace(/\\n/g, '\n')
+}
+
 const getLogLevel = (): 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent' => {
   const rawValue = process.env.LOG_LEVEL?.trim().toLowerCase() ?? 'info'
 
@@ -65,13 +74,24 @@ const getLogLevel = (): 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' 
   return rawValue as 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
 }
 
-export const sessionConfig: SessionConfig = {
+const getOptionalEnv = (name: string): string | undefined => {
+  const value = process.env[name]?.trim()
+
+  if (!value) {
+    return undefined
+  }
+
+  return value.replace(/\/$/, '')
+}
+
+export const collabConfig: CollabConfig = {
   host: process.env.HOST ?? '0.0.0.0',
-  port: getPositiveInteger('PORT', 3003),
-  databaseUrl: getRequiredEnv('DATABASE_URL'),
+  port: getPositiveInteger('PORT', 3002),
   logLevel: getLogLevel(),
-  requestTimeoutMs: getPositiveInteger('REQUEST_TIMEOUT_MS', 15_000),
-  bodyLimitBytes: getPositiveInteger('BODY_LIMIT_BYTES', 1_048_576),
-  trustProxy: getBoolean('TRUST_PROXY', false),
+  maxPayloadBytes: getPositiveInteger('MAX_PAYLOAD_BYTES', 1_048_576),
   shutdownGracePeriodMs: getPositiveInteger('SHUTDOWN_GRACE_PERIOD_MS', 10_000),
+  jwtPublicKey: normalizePem(getRequiredEnv('JWT_PUBLIC_KEY')),
+  sessionServiceUrl: getOptionalEnv('SESSION_SERVICE_URL'),
+  allowMockSessionAccess: getBoolean('ALLOW_MOCK_SESSION_ACCESS', false),
+  sessionServiceTimeoutMs: getPositiveInteger('SESSION_SERVICE_TIMEOUT_MS', 4_000),
 }

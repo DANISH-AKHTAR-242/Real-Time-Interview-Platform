@@ -11,7 +11,8 @@
     "format": "prettier --check \"src/**/*.ts\" \"prisma/**/*.prisma\" \"*.json\" \"eslint.config.js\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

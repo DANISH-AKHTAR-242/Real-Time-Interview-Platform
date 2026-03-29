@@ -27,7 +27,10 @@ const extractBearerToken = (authorization: string | undefined): string | null =>
   return token
 }
 
-export const authPreHandler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+export const authPreHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> => {
   const token = extractBearerToken(request.headers.authorization)
 
   if (!token) {
@@ -44,7 +47,14 @@ export const authPreHandler = async (request: FastifyRequest, reply: FastifyRepl
     return
   }
 
-  const session = await findSession(claims.sid)
+  let session
+
+  try {
+    session = await findSession(claims.sid)
+  } catch {
+    await reply.code(503).send({ message: 'Auth storage unavailable' })
+    return
+  }
 
   if (!session || session.userId !== claims.sub) {
     await reply.code(401).send({ message: 'Unauthorized' })

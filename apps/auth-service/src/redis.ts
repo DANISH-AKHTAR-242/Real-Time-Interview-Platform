@@ -23,6 +23,12 @@ export const redis = new Redis(authConfig.redisUrl, {
   lazyConnect: true,
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
+  enableOfflineQueue: false,
+  connectTimeout: 5_000,
+})
+
+redis.on('error', (error) => {
+  console.error('[auth-service] redis error', error)
 })
 
 export const connectRedis = async (): Promise<void> => {
@@ -31,6 +37,23 @@ export const connectRedis = async (): Promise<void> => {
   }
 
   await redis.connect()
+}
+
+export const disconnectRedis = async (): Promise<void> => {
+  if (redis.status === 'end') {
+    return
+  }
+
+  await redis.quit()
+}
+
+export const pingRedis = async (): Promise<boolean> => {
+  try {
+    const response = await redis.ping()
+    return response === 'PONG'
+  } catch {
+    return false
+  }
 }
 
 export const createUser = async (user: StoredUser): Promise<void> => {
@@ -43,6 +66,7 @@ export const createUser = async (user: StoredUser): Promise<void> => {
   const firstResult = result?.[0]
 
   if (!firstResult || firstResult[0] || firstResult[1] !== 'OK') {
+    await redis.del(userKey(user.id))
     throw new Error('User already exists')
   }
 }
