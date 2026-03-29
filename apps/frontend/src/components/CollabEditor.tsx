@@ -7,6 +7,8 @@ import * as Y from 'yjs'
 
 interface CollabEditorProps {
   sessionId: string
+  wsEndpoint: string
+  accessToken?: string
 }
 
 interface PresenceUser {
@@ -31,13 +33,19 @@ const randomColor = (): string => {
 }
 
 const randomUserName = (): string => {
-  return `User-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`
+  return `User-${Math.floor(Math.random() * 10000)
+    .toString()
+    .padStart(4, '0')}`
 }
 
 const cursorClassName = (clientId: number): string => `remote-cursor-${clientId}`
 const cursorLabelClassName = (clientId: number): string => `remote-cursor-label-${clientId}`
 
-export const CollabEditor = ({ sessionId }: CollabEditorProps): JSX.Element => {
+export const CollabEditor = ({
+  sessionId,
+  wsEndpoint,
+  accessToken,
+}: CollabEditorProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -50,8 +58,16 @@ export const CollabEditor = ({ sessionId }: CollabEditorProps): JSX.Element => {
     const doc = new Y.Doc()
     const yText = doc.getText('monaco')
 
-    const provider = new WebsocketProvider('ws://localhost:3002', sessionId, doc, {
+    const provider = new WebsocketProvider(wsEndpoint, sessionId, doc, {
       connect: true,
+      params: accessToken
+        ? {
+            token: accessToken,
+            sessionId,
+          }
+        : {
+            sessionId,
+          },
     })
 
     const awareness = provider.awareness
@@ -174,7 +190,9 @@ export const CollabEditor = ({ sessionId }: CollabEditorProps): JSX.Element => {
     awareness.on('change', awarenessUpdateHandler)
 
     provider.on('status', (event: { status: string }) => {
-      console.log(`[frontend] y-websocket ${event.status} session=${sessionId}`)
+      console.log(
+        `[frontend] y-websocket ${event.status} session=${sessionId} endpoint=${wsEndpoint}`,
+      )
     })
 
     updateLocalCursorPresence()
@@ -192,7 +210,7 @@ export const CollabEditor = ({ sessionId }: CollabEditorProps): JSX.Element => {
       doc.destroy()
       styleElement.remove()
     }
-  }, [sessionId])
+  }, [accessToken, sessionId, wsEndpoint])
 
   return <div className="editor-container" ref={containerRef} />
 }
