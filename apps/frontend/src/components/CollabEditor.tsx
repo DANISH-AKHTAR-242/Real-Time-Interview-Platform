@@ -9,6 +9,9 @@ interface CollabEditorProps {
   sessionId: string
   wsEndpoint: string
   accessToken?: string
+  language: string
+  initialCode: string
+  onCodeChange?: (code: string) => void
 }
 
 interface PresenceUser {
@@ -45,6 +48,9 @@ export const CollabEditor = ({
   sessionId,
   wsEndpoint,
   accessToken,
+  language,
+  initialCode,
+  onCodeChange,
 }: CollabEditorProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -72,7 +78,7 @@ export const CollabEditor = ({
 
     const awareness = provider.awareness
 
-    const model = monaco.editor.createModel('', 'typescript')
+    const model = monaco.editor.createModel(initialCode, language)
     const editor = monaco.editor.create(container, {
       model,
       automaticLayout: true,
@@ -80,6 +86,8 @@ export const CollabEditor = ({
       fontSize: 14,
       tabSize: 2,
     })
+
+    onCodeChange?.(model.getValue())
 
     const binding = new MonacoBinding(yText, model, new Set([editor]), awareness)
 
@@ -183,6 +191,10 @@ export const CollabEditor = ({
       updateLocalCursorPresence()
     })
 
+    const contentDisposable = model.onDidChangeContent(() => {
+      onCodeChange?.(model.getValue())
+    })
+
     const awarenessUpdateHandler = (): void => {
       updateRemoteDecorations()
     }
@@ -202,6 +214,7 @@ export const CollabEditor = ({
       awareness.off('change', awarenessUpdateHandler)
       awareness.setLocalState(null)
       selectionDisposable.dispose()
+      contentDisposable.dispose()
       binding.destroy()
       provider.destroy()
       decorationIds = editor.deltaDecorations(decorationIds, [])
@@ -210,7 +223,7 @@ export const CollabEditor = ({
       doc.destroy()
       styleElement.remove()
     }
-  }, [accessToken, sessionId, wsEndpoint])
+  }, [accessToken, initialCode, language, onCodeChange, sessionId, wsEndpoint])
 
   return <div className="editor-container" ref={containerRef} />
 }
