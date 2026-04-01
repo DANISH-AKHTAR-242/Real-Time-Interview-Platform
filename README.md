@@ -1,72 +1,204 @@
 # Real-Time Interview Platform
 
-Production-oriented monorepo for live coding interviews with collaborative editing, auth/session management, and secure code execution.
+A production-oriented **pnpm + Turbo monorepo** for running live coding interviews with:
 
-## What This Project Provides
+- JWT-based auth
+- interview session lifecycle management
+- real-time collaborative editing (Yjs + WebSocket)
+- sandboxed code execution (queue + Docker runners)
+- a React + Monaco frontend
 
-- Real-time collaborative editor built on Monaco + Yjs.
-- JWT-based authentication service.
-- Session lifecycle service backed by PostgreSQL + Prisma.
-- WebSocket collaboration service with session/user authorization.
-- Sandboxed code execution service using queue + worker + Docker isolation.
-- Monorepo workflow with pnpm workspaces and Turbo.
+---
 
-## Monorepo Layout
+## Table of Contents
+
+1. [Repository Overview](#repository-overview)
+2. [Top-Level File Guide](#top-level-file-guide)
+3. [Monorepo Structure](#monorepo-structure)
+4. [Services and Responsibilities](#services-and-responsibilities)
+5. [Architecture and Request Flow](#architecture-and-request-flow)
+6. [Ports and Runtime Matrix](#ports-and-runtime-matrix)
+7. [Tech Stack](#tech-stack)
+8. [Prerequisites](#prerequisites)
+9. [Local Setup (End-to-End)](#local-setup-end-to-end)
+10. [Environment Variables](#environment-variables)
+11. [API and WebSocket Surface](#api-and-websocket-surface)
+12. [Code Execution Security Model](#code-execution-security-model)
+13. [Development Commands](#development-commands)
+14. [Quality Gates and Validation](#quality-gates-and-validation)
+15. [QA Package Included in Repo](#qa-package-included-in-repo)
+16. [Troubleshooting](#troubleshooting)
+17. [Production Notes](#production-notes)
+18. [License](#license)
+
+---
+
+## Repository Overview
+
+This repository is organized as a workspace monorepo with apps under `apps/*` and shared config packages under `packages/*`.
+
+Core platform modules:
+
+- **`auth-service`**: registration, login, token issuance, identity endpoint
+- **`session-service`**: interview session creation/read/update backed by PostgreSQL + Prisma
+- **`collab-service`**: Yjs synchronization server over WebSocket with upgrade authentication
+- **`execution-service`**: async code execution API + queue worker using Docker-based runners
+- **`frontend`**: React app with Monaco editor, collaboration connection controls, run-code UI
+
+---
+
+## Top-Level File Guide
+
+### Project and tooling
+
+- `package.json` — root scripts (`dev`, `build`, `lint`, `typecheck`, `check`)
+- `pnpm-workspace.yaml` — workspace mapping for `apps/*` and `packages/*`
+- `pnpm-lock.yaml` — workspace lockfile
+- `turbo.json` — task graph (`build`, `lint`, `typecheck`, `format`, `dev`)
+- `prettier.config.cjs`, `.prettierignore` — formatting config
+- `.gitignore` — ignored files
+
+### Infrastructure and env
+
+- `docker-compose.yml` — local PostgreSQL + Redis
+- `.env.example` — shared and service-specific environment variables
+
+### QA / validation package
+
+- `COLLAB_VALIDATION_GUIDE.md`
+- `QA_QUICK_REFERENCE.md`
+- `README_QA_VALIDATION.md`
+- `QA_PACKAGE_OVERVIEW.md`
+- `IMPLEMENTATION_GUIDE.md`
+- `START_HERE.md`
+- `TEST_SCRIPT_BROWSER_CONSOLE.js`
+- `METRICS_MONITORING.ts`
+- `e2e-integration-test.mjs`
+
+---
+
+## Monorepo Structure
 
 ```text
 apps/
-	auth-service/        Fastify auth API + Redis session store
-	session-service/     Fastify session API + Prisma + Postgres
-	collab-service/      WebSocket/Yjs real-time collaboration
-	execution-service/   Fastify enqueue/result API + BullMQ worker + Docker sandbox
-	frontend/            Vite + React + Monaco client
+  auth-service/
+  session-service/
+  collab-service/
+  execution-service/
+  frontend/
 
 packages/
-	eslint-config/       Shared lint config
-	prettier-config/     Shared prettier config
-	tsconfig/            Shared TypeScript config presets
+  eslint-config/
+  prettier-config/
+  tsconfig/
 ```
 
-## Architecture Overview
+---
 
-1. User logs in or registers via auth-service and gets JWT.
-2. Frontend connects to collab-service over WebSocket with session params (and token when required).
-3. Frontend can submit code to execution-service.
-4. execution-service API enqueues jobs to Redis-backed BullMQ.
-5. execution worker runs code in constrained Docker containers.
-6. Frontend polls result endpoint and displays stdout, stderr, and runtime errors.
+## Services and Responsibilities
 
-## Services and Ports
+### 1) `apps/auth-service`
 
-| Component                | Default Port | Purpose                                        |
-| ------------------------ | ------------ | ---------------------------------------------- |
-| frontend                 | 5173         | Interview UI + Monaco editor                   |
-| auth-service             | 3001         | JWT auth and user/session identity             |
-| collab-service           | 3002         | Real-time collaborative editing over WebSocket |
-| session-service          | 3003         | Interview session CRUD and status              |
-| execution-service API    | 3004         | Enqueue execution + fetch result               |
-| execution-service worker | n/a          | Asynchronous code execution processor          |
-| postgres (docker)        | 5432         | Session persistence                            |
-| redis (docker)           | 6379         | Auth/session cache and execution queue         |
+Fastify API for authentication and identity.
+
+- Hashes passwords with `bcrypt`
+- Stores users/sessions in Redis
+- Issues JWT access tokens
+- Endpoints: `/register`, `/login`, `/me`, `/health`, `/ready`
+
+### 2) `apps/session-service`
+
+Fastify API for interview sessions (PostgreSQL + Prisma).
+
+- Creates sessions with candidate/interviewer UUIDs
+- Reads a session by ID
+- Updates session status (`scheduled`, `active`, `completed`)
+- Endpoints: `/sessions`, `/sessions/:id`, `/health`, `/ready`
+
+### 3) `apps/collab-service`
+
+Node HTTP + `ws` WebSocket service for collaborative editing.
+
+- Handles HTTP upgrade auth checks
+- Uses Yjs + y-websocket for CRDT sync
+- Tracks active WebSocket connections
+- HTTP endpoints: `/health`, `/ready`
+
+### 4) `apps/execution-service`
+
+Fastify API + queue worker for secure code execution.
+
+- `POST /execute` enqueues job
+- `GET /result/:jobId` fetches execution status/result
+- Uses BullMQ + Redis
+- Worker executes code in constrained Docker containers
+
+### 5) `apps/frontend`
+
+Vite + React + Monaco client application.
+
+- Connects to collaboration backend via WebSocket
+- Accepts JWT token for auth-enabled sessions
+- Supports JavaScript and Python run-code flow
+- Polls execution results and renders stdout/stderr/errors
+
+---
+
+## Architecture and Request Flow
+
+1. User registers/logs in through **auth-service** and receives JWT.
+2. Frontend opens WebSocket to **collab-service** with session context (+ token when required).
+3. Session metadata operations go through **session-service**.
+4. Frontend submits code to **execution-service**.
+5. Execution API enqueues job in Redis/BullMQ.
+6. Execution worker runs code using language-specific Docker runner image.
+7. Frontend polls result endpoint and displays final output.
+
+---
+
+## Ports and Runtime Matrix
+
+| Component | Default Port | Purpose |
+| --- | ---: | --- |
+| frontend | 5173 | React/Vite UI |
+| auth-service | 3001 | auth + JWT |
+| collab-service | 3002 | WebSocket collaboration |
+| session-service | 3003 | interview session lifecycle |
+| execution-service API | 3004 | enqueue + query execution results |
+| execution worker | n/a | async job processing |
+| postgres (docker) | 5432 | session persistence |
+| redis (docker) | 6379 | auth/session cache + queue |
+
+---
 
 ## Tech Stack
 
-- Runtime: Node.js + TypeScript
-- HTTP APIs: Fastify
-- Realtime: ws, y-websocket, yjs, y-monaco
-- Database: PostgreSQL + Prisma
-- Queue: BullMQ + ioredis
-- Frontend: Vite + React + Monaco Editor
-- Tooling: pnpm workspaces + Turbo + ESLint + Prettier
+- **Runtime:** Node.js + TypeScript
+- **HTTP services:** Fastify
+- **Realtime:** `ws`, `yjs`, `y-websocket`, `@y/websocket-server`
+- **Database:** PostgreSQL + Prisma
+- **Queue:** BullMQ + ioredis
+- **Frontend:** Vite + React + Monaco Editor
+- **Tooling:** pnpm workspaces, Turbo, ESLint, Prettier
+
+---
 
 ## Prerequisites
 
 - Node.js 18+
 - pnpm 9+
-- Docker Desktop (or Docker Engine + Compose)
-- OpenSSL (for generating JWT keypair)
+- Docker + Docker Compose
+- OpenSSL (JWT key generation)
 
-## Quick Start
+If `pnpm` is unavailable in your shell, enable it with Corepack:
+
+```bash
+corepack enable
+```
+
+---
+
+## Local Setup (End-to-End)
 
 ### 1) Install dependencies
 
@@ -81,46 +213,39 @@ docker compose up -d
 docker compose ps
 ```
 
-### 3) Create environment file
-
-macOS/Linux:
+### 3) Create `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-### 4) Generate JWT keypair (one-time)
+### 4) Generate JWT keypair
 
 ```bash
 openssl genrsa -out private.pem 2048
 openssl rsa -in private.pem -pubout -out public.pem
 ```
 
-Copy key contents into `.env` values for `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY`.
+Then copy key contents into `.env`:
 
-### 5) Run database migration/generation
+- `JWT_PRIVATE_KEY`
+- `JWT_PUBLIC_KEY`
+
+### 5) Generate Prisma client and migrate DB
 
 ```bash
 pnpm --filter @repo/session-service db:generate
 pnpm --filter @repo/session-service db:migrate
 ```
 
-### 6) Build runner images for execution sandbox
+### 6) Build execution runner Docker images
 
 ```bash
 docker build -f apps/execution-service/src/docker/Dockerfile.python -t code-runner-python .
 docker build -f apps/execution-service/src/docker/Dockerfile.javascript -t code-runner-javascript .
 ```
 
-### 7) Start services (development)
-
-Use separate terminals:
+### 7) Run services (recommended separate terminals)
 
 ```bash
 pnpm --filter @repo/auth-service dev
@@ -131,9 +256,11 @@ pnpm --filter @repo/execution-service dev:worker
 pnpm --filter @repo/frontend dev
 ```
 
+---
+
 ## Environment Variables
 
-See `.env.example` for defaults and comments.
+Source of truth: `.env.example`
 
 ### Shared
 
@@ -148,14 +275,14 @@ See `.env.example` for defaults and comments.
 
 ### auth-service
 
-- `JWT_PRIVATE_KEY` (required)
-- `JWT_PUBLIC_KEY` (required)
+- `JWT_PRIVATE_KEY` (**required**)
+- `JWT_PUBLIC_KEY` (**required**)
 - `JWT_EXPIRES_IN`
 - `MAX_AUTH_ATTEMPTS_PER_MINUTE`
 
 ### collab-service
 
-- `JWT_PUBLIC_KEY` (required)
+- `JWT_PUBLIC_KEY` (required if auth enabled)
 - `SESSION_SERVICE_URL`
 - `ALLOW_MOCK_SESSION_ACCESS`
 - `SESSION_SERVICE_TIMEOUT_MS`
@@ -169,15 +296,17 @@ See `.env.example` for defaults and comments.
 ### frontend
 
 - `VITE_WS_URL`
-- `VITE_EXECUTION_API_URL` (optional; if empty, Vite proxy is used)
+- `VITE_EXECUTION_API_URL` (optional; if empty, Vite proxy path is used)
 
-## API Surface
+---
+
+## API and WebSocket Surface
 
 ### auth-service
 
 - `POST /register`
 - `POST /login`
-- `GET /me` (requires bearer token)
+- `GET /me` (Bearer token)
 - `GET /health`
 - `GET /ready`
 
@@ -191,128 +320,141 @@ See `.env.example` for defaults and comments.
 
 ### collab-service
 
-- WebSocket upgrade endpoint on the same host/port.
-- HTTP endpoints:
-  - `GET /health`
-  - `GET /ready`
-
-### execution-service
-
-- `POST /execute`
-  - Body: `{ code: string, language: "python" | "javascript" }`
-  - Response: `202 { jobId }`
-- `GET /result/:jobId`
-  - Response includes one of status values: `waiting`, `active`, `completed`, `failed`
-  - For terminal execution outcomes, inspect `result.stdout`, `result.stderr`, and `result.error`
+- WebSocket upgrade endpoint on service host/port
 - `GET /health`
 - `GET /ready`
 
-Note: execution result access is owner-scoped. The same requester identity is expected when polling.
+### execution-service
 
-## Frontend Behavior
+- `POST /execute` with body:
+  - `{ code: string, language: "python" | "javascript" }`
+- `GET /result/:jobId`
+  - status values include: `waiting`, `active`, `completed`, `failed`
+  - final payload includes `stdout`, `stderr`, `error` fields where applicable
+- `GET /health`
+- `GET /ready`
 
-Frontend includes:
+---
 
-- Collaborative editor connection controls.
-- Run Code action for Python/JavaScript.
-- Polling result flow with output panels:
-  - stdout
-  - stderr
-  - errors
+## Code Execution Security Model
 
-For local development, Vite proxies `/execute` and `/result/*` to `http://localhost:3004`.
+Execution pipeline protections include:
 
-## Execution Security Model
+- Language allowlist (`python`, `javascript`)
+- Code size limits
+- Timeouts
+- Docker isolation with constraints (memory/CPU/process/file/network restrictions)
+- Output caps to prevent unbounded growth
+- Queue abuse controls (rate limits and pending job limits)
+- Ownership checks for result access
 
-execution-service is hardened for hostile input:
+---
 
-- Language whitelist: python, javascript.
-- Max code size: 16 KiB.
-- Hard timeout: 5s max.
-- Docker constraints:
-  - memory 256MB
-  - CPU capped
-  - no network
-  - read-only FS
-  - PID/process limits
-  - file-size and open-file limits
-- Output capture cap to prevent unbounded memory use.
-- Queue abuse controls:
-  - per-user/IP rate limits
-  - global pending queue cap
-  - per-owner pending job cap
-- Result ownership checks to prevent cross-user probing.
+## Development Commands
 
-## Local Quality Gates
-
-From repository root:
+## Root (workspace)
 
 ```bash
+pnpm dev
 pnpm typecheck
 pnpm lint
 pnpm build
 pnpm check
+pnpm format
+pnpm format:write
 ```
 
-## QA and Validation Assets
+### Per-app commands (high frequency)
 
-The repository includes a full QA package:
+- `pnpm --filter @repo/auth-service dev`
+- `pnpm --filter @repo/session-service dev`
+- `pnpm --filter @repo/collab-service dev`
+- `pnpm --filter @repo/execution-service dev`
+- `pnpm --filter @repo/execution-service dev:worker`
+- `pnpm --filter @repo/frontend dev`
 
-- `COLLAB_VALIDATION_GUIDE.md`
-- `QA_QUICK_REFERENCE.md`
-- `TEST_SCRIPT_BROWSER_CONSOLE.js`
-- `README_QA_VALIDATION.md`
-- `IMPLEMENTATION_GUIDE.md`
-- `QA_PACKAGE_OVERVIEW.md`
+---
 
-Use these docs to validate collaborative editing behavior, resilience, and performance.
+## Quality Gates and Validation
 
-## CI
+Workspace validation command:
 
-- GitHub Actions workflow runs workspace validation checks.
-- Use `pnpm check` locally before creating PRs.
+```bash
+pnpm check
+```
+
+This runs:
+
+1. `pnpm typecheck`
+2. `pnpm lint`
+3. `pnpm build`
+
+> Current repository snapshot may include pre-existing failures unrelated to README/documentation edits. Address service-level type/runtime issues before treating workspace validation as green.
+
+---
+
+## QA Package Included in Repo
+
+The repository includes a large collaborative-editing QA kit:
+
+- **`START_HERE.md`**: onboarding entry point
+- **`README_QA_VALIDATION.md`**: QA package overview
+- **`COLLAB_VALIDATION_GUIDE.md`**: deep validation procedures
+- **`QA_QUICK_REFERENCE.md`**: condensed checklist
+- **`IMPLEMENTATION_GUIDE.md`**: setup + walkthrough
+- **`TEST_SCRIPT_BROWSER_CONSOLE.js`**: browser-side automated checks
+- **`METRICS_MONITORING.ts`**: optional monitoring integration example
+- **`QA_PACKAGE_OVERVIEW.md`**: high-level summary
+
+Use these docs when validating synchronization quality, conflict resolution behavior, resilience, and performance.
+
+---
 
 ## Troubleshooting
 
-### Services fail to start
-
-- Confirm Docker dependencies are healthy:
+### `pnpm: command not found`
 
 ```bash
-docker compose ps
+corepack enable
 ```
 
-- Verify required env vars are present (`JWT_*`, `DATABASE_URL`, `REDIS_URL`).
+### Services fail to boot
 
-### Prisma errors
+- Check Docker infra (`docker compose ps`)
+- Verify `.env` has required values
+- Ensure ports 3001-3004/5173/5432/6379 are not already occupied
 
-- Regenerate client and run migrations:
+### Prisma/session-service issues
 
 ```bash
 pnpm --filter @repo/session-service db:generate
 pnpm --filter @repo/session-service db:migrate
 ```
 
-### Execution jobs never complete
+### Execution jobs never finish
 
-- Ensure worker is running:
+- Ensure worker is running: `pnpm --filter @repo/execution-service dev:worker`
+- Verify Docker runner images exist:
+  - `code-runner-python`
+  - `code-runner-javascript`
 
-```bash
-pnpm --filter @repo/execution-service dev:worker
-```
+### Collaboration connection problems
 
-- Ensure runner images exist (`code-runner-python`, `code-runner-javascript`).
+- Confirm frontend points to correct `VITE_WS_URL`
+- Confirm valid session/token settings used by collab-service auth path
+- Check `/health` and `/ready` on collab-service
 
-### 404/401 style result polling issues
-
-- Poll with the same requester identity used when creating the job.
+---
 
 ## Production Notes
 
-- Put services behind an API gateway or ingress with TLS.
-- Do not expose internal services directly without auth/rate controls.
-- Keep Redis and Postgres private to trusted network segments.
-- Rotate JWT keys and secrets regularly.
+- Front services with TLS and a controlled ingress/gateway
+- Keep Redis/Postgres on private network segments
+- Apply auth/rate limits at edges and services
+- Rotate JWT keys/secrets periodically
+- Centralize logs/metrics/alerts before production rollout
+
+---
 
 ## License
 
