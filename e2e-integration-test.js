@@ -1,6 +1,6 @@
-const axios = require('axios')
-const WebSocket = require('ws')
-const { randomUUID } = require('node:crypto')
+import axios from 'axios'
+import WebSocket from 'ws'
+import { randomUUID } from 'node:crypto'
 
 const AUTH_BASE_URL = process.env.AUTH_BASE_URL || 'http://localhost:3001'
 const COLLAB_BASE_URL = process.env.COLLAB_BASE_URL || 'ws://localhost:3002'
