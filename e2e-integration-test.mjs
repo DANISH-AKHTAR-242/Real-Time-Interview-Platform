@@ -27,11 +27,21 @@ const logStepSuccess = (label, detail) => {
 }
 
 const normalizeAxiosError = (error) => {
+  if (error instanceof Error) {
+    const stack = typeof error.stack === 'string' && error.stack.length > 0 ? `\n${error.stack}` : ''
+
+    if (error.response) {
+      return `${error.message} (status=${error.response.status}, body=${JSON.stringify(error.response.data)})${stack}`
+    }
+
+    return `${error.message}${stack}`
+  }
+
   if (error.response) {
     return `${error.message} (status=${error.response.status}, body=${JSON.stringify(error.response.data)})`
   }
 
-  return error.message
+  return JSON.stringify(error)
 }
 
 const registerUser = async (client, email, password) => {
