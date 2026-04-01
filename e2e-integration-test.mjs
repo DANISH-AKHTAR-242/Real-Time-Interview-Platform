@@ -203,15 +203,15 @@ const run = async () => {
     validateStatus: () => true,
   })
 
-  const email = `e2e.${Date.now()}.${Math.floor(Math.random() * 100000)}@example.com`
-  const password = 'E2EPassword!123'
+  const testEmail = `e2e.${Date.now()}.${Math.floor(Math.random() * 100000)}@example.com`
+  const testPassword = 'E2EPassword!123'
 
   logStepStart('Auth Service: register user')
-  const registration = await registerUser(authClient, email, password)
+  const registration = await registerUser(authClient, testEmail, testPassword)
   logStepSuccess('Auth Service: register user', `userId=${registration.user.id}`)
 
   logStepStart('Auth Service: login user')
-  const login = await loginUser(authClient, email, password)
+  const login = await loginUser(authClient, testEmail, testPassword)
   const jwt = login.token
   const userId = login.user.id
   logStepSuccess('Auth Service: login user', `jwtLength=${jwt.length}`)
