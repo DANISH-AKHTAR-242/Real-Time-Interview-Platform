@@ -282,7 +282,7 @@ Source of truth: `.env.example`
 
 ### collab-service
 
-- `JWT_PUBLIC_KEY` (required if auth enabled)
+- `JWT_PUBLIC_KEY` (required when `ALLOW_MOCK_SESSION_ACCESS=false`; not required when mock access is enabled)
 - `SESSION_SERVICE_URL`
 - `ALLOW_MOCK_SESSION_ACCESS`
 - `SESSION_SERVICE_TIMEOUT_MS`
@@ -352,7 +352,7 @@ Execution pipeline protections include:
 
 ## Development Commands
 
-## Root (workspace)
+### Root (workspace)
 
 ```bash
 pnpm dev
@@ -389,8 +389,6 @@ This runs:
 2. `pnpm lint`
 3. `pnpm build`
 
-> Current repository snapshot may include pre-existing failures unrelated to README/documentation edits. Address service-level type/runtime issues before treating workspace validation as green.
-
 ---
 
 ## QA Package Included in Repo
@@ -405,6 +403,7 @@ The repository includes a large collaborative-editing QA kit:
 - **`TEST_SCRIPT_BROWSER_CONSOLE.js`**: browser-side automated checks
 - **`METRICS_MONITORING.ts`**: optional monitoring integration example
 - **`QA_PACKAGE_OVERVIEW.md`**: high-level summary
+- **`e2e-integration-test.mjs`**: end-to-end integration validation script (run with `node e2e-integration-test.mjs`)
 
 Use these docs when validating synchronization quality, conflict resolution behavior, resilience, and performance.
 
