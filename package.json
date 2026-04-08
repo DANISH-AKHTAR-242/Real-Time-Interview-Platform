@@ -13,9 +13,11 @@
   },
   "devDependencies": {
     "@repo/prettier-config": "workspace:*",
+    "axios": "^1.14.0",
     "eslint": "^9.22.0",
     "prettier": "^3.5.3",
     "turbo": "^2.4.4",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "ws": "^8.18.3"
   }
 }
