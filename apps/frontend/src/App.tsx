@@ -8,6 +8,7 @@ import {
 } from './api/execution'
 
 import { CollabEditor } from './components/CollabEditor'
+import { MediaSfuPanel } from './components/MediaSfuPanel'
 
 const defaultSessionId = '00000000-0000-4000-8000-000000000001'
 const defaultWsEndpoint =
@@ -24,6 +25,7 @@ type RunState = 'idle' | 'submitting' | 'running' | 'completed' | 'failed'
 export const App = (): JSX.Element => {
   const [inputSessionId, setInputSessionId] = useState(defaultSessionId)
   const [activeSessionId, setActiveSessionId] = useState(defaultSessionId)
+  const [joinRequestToken, setJoinRequestToken] = useState(0)
   const [wsEndpoint, setWsEndpoint] = useState(defaultWsEndpoint)
   const [language, setLanguage] = useState<ExecutionLanguage>('javascript')
   const [code, setCode] = useState(languageTemplates.javascript)
@@ -99,6 +101,11 @@ export const App = (): JSX.Element => {
   const handleLanguageChange = useCallback((nextLanguage: ExecutionLanguage): void => {
     setLanguage(nextLanguage)
   }, [])
+
+  const handleJoinSession = useCallback((): void => {
+    setActiveSessionId(inputSessionId)
+    setJoinRequestToken((currentToken) => currentToken + 1)
+  }, [inputSessionId])
 
   const handleRunCode = useCallback(async (): Promise<void> => {
     if (code.trim().length === 0) {
@@ -182,8 +189,8 @@ export const App = (): JSX.Element => {
           onChange={(event) => setInputSessionId(event.target.value)}
           placeholder="session-123"
         />
-        <button type="button" onClick={() => setActiveSessionId(inputSessionId)}>
-          Connect
+        <button type="button" onClick={handleJoinSession}>
+          Join Session
         </button>
 
         <label htmlFor="ws-endpoint">WebSocket URL</label>
@@ -228,6 +235,8 @@ export const App = (): JSX.Element => {
           Execution API: <code>{normalizedExecutionApiUrl || 'vite-proxy'}</code>
         </span>
       </section>
+
+      <MediaSfuPanel sessionId={normalizedSessionId} autoJoinToken={joinRequestToken} />
 
       <section className="editor-output-layout">
         <CollabEditor

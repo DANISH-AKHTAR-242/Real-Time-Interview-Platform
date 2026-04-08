@@ -31,6 +31,23 @@ services:
       timeout: 3s
       retries: 10
 
+  coturn:
+    image: coturn/coturn:4.6.3
+    container_name: interview-platform-coturn
+    restart: unless-stopped
+    command:
+      - -n
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}
+    ports:
+      - '3478:3478/udp'
+      - '3478:3478/tcp'
+      - '49160-49200:49160-49200/udp'
+      - '49160-49200:49160-49200/tcp'
+    volumes:
+      - ./infra/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
 volumes:
   postgres_data:
   redis_data:
